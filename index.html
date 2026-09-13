@@ -1167,7 +1167,7 @@ function printPDF(){
   doc.setTextColor(100,100,100);
   doc.text('Estudiante 3BGU', ML+sigW+20+sigW/2, y+8, {align:'center'});
 
-  doc.save('Informe_ComercioInternacional_' + name.replace(/\s+/g,'_') + '.pdf');
+  doc.save('Informe_DesempleoDesigualdad_' + name.replace(/\s+/g,'_') + '.pdf');
   } catch(e){ console.error('printPDF error:', e); alert('Error al generar PDF: ' + e.message); }
 }
 
@@ -1403,7 +1403,7 @@ function generateStudentPDF(row){
   doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor(100,100,100);
   doc.text('Estudiante 3BGU',ML+sigW+20+sigW/2,y+8,{align:'center'});
 
-  doc.save('Informe_ComercioInternacional_'+name.trim().replace(/\s+/g,'_')+'.pdf');
+  doc.save('Informe_DesempleoDesigualdad_'+name.trim().replace(/\s+/g,'_')+'.pdf');
   } catch(e){ console.error('generateStudentPDF error:',e);alert('Error al generar PDF: '+e.message); }
 }
 
@@ -1511,7 +1511,7 @@ function exportExcel(){
   const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'calificaciones_comercio_internacional_3bgu.csv';
+  a.download = 'calificaciones_desempleo_desigualdad_3bgu.csv';
   a.click();
   URL.revokeObjectURL(a.href);
 }
