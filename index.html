@@ -264,7 +264,6 @@ body::before{content:"";position:fixed;inset:0;background-image:url("data:image/
 </div>
 <div id="questionArea"></div>
 <div class="actions">
-  <button class="btn btn-ghost" id="prevBtn" disabled><i class="fa-solid fa-arrow-left"></i> Anterior</button>
   <button class="btn btn-primary" id="nextBtn">Siguiente <i class="fa-solid fa-arrow-right"></i></button>
 </div>
 </section>
@@ -479,7 +478,6 @@ const ROSTER = [
   const sorted = [...new Set(ROSTER)].sort((a,b)=>a.localeCompare(b,'es'));
   sorted.forEach(n=>{ const o=document.createElement('option'); o.value=n; o.textContent=n; sel.appendChild(o); });
   document.getElementById('totalQDisplay').textContent = TOTAL_QUESTIONS;
-  document.getElementById('prevBtn').addEventListener('click', prevQuestion);
   document.getElementById('nextBtn').addEventListener('click', nextQuestion);
   checkQuizStatus();
 })();
@@ -624,7 +622,6 @@ function renderQuestion(){
 
   document.getElementById('progressFill').style.width = ((idx+1)/total*100)+'%';
   document.getElementById('progressText').textContent = (idx+1)+' / '+total;
-  document.getElementById('prevBtn').disabled = idx === 0;
   document.getElementById('nextBtn').textContent = idx === total-1 ? 'Finalizar' : 'Siguiente';
   document.getElementById('nextBtn').innerHTML = idx === total-1 ? 'Finalizar <i class="fa-solid fa-flag-checkered"></i>' : 'Siguiente <i class="fa-solid fa-arrow-right"></i>';
 
@@ -669,16 +666,6 @@ function nextQuestion(){
     finishQuiz();
   }
 }
-function prevQuestion(){
-  clearPerQuestionTimer();
-  if(STATE.currentIndex > 0){
-    STATE.currentIndex--;
-    renderQuestion();
-    window.scrollTo({top:0,behavior:'smooth'});
-  }
-}
-
-/* ═══════ FINISH ═══════ */
 function finishQuiz(){
   clearPerQuestionTimer();
   clearInterval(STATE.timer);
