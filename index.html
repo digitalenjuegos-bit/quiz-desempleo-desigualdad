@@ -9,6 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700;9..144,900&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{
 /* ═══ PALETA IB ACTUALIZADA (patrón aprendido) ═══ */
@@ -416,7 +417,23 @@ const QUESTION_BANK = [
 const STATE = {studentName:"", studentLastname:"", selectedQuestions:[], currentIndex:0, userAnswers:[], answered:false, shuffledAnswers:[], shuffledOptions:[], timePerQuestion:60, timer:null, timerSeconds:0, perQuestionTimer:null, perQuestionTimeLeft:60, startTime:null};
 const TOTAL_QUESTIONS = 20;
 const EXAM_ID = 'desempleo-desigualdad-3bgu';
-const API_BASE = 'https://evaluador-ensayos-production.up.railway.app/api/quiz/' + EXAM_ID;
+/* ═══ SUPABASE (guardado de notas) ═══
+   IMPORTANTE: el proyecto Supabase original (ejoccivurtwxkuyeqxil) fue eliminado
+   (NXDOMAIN verificado). Para activar el guardado en la nube:
+   1. Crea un proyecto nuevo en https://supabase.com (plan Free).
+   2. Ejecuta supabase/schema.sql en el SQL Editor.
+   3. Pega aqui la URL y la anon key (sb_publishable_...) del proyecto nuevo.
+   Mientras tanto, las notas se guardan en localStorage (solo este dispositivo). */
+const SUPABASE_URL = 'https://iitjrrnndfxqjzkggtog.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_90BfL8Ncg9WyceCdTE5Wzg_9kj14ubv';
+const SUPABASE_CONFIGURED = SUPABASE_URL.indexOf('tu-proyecto') === -1 && SUPABASE_ANON_KEY.indexOf('tu-anon-key') === -1 && SUPABASE_URL.indexOf('PEGAR') === -1 && SUPABASE_ANON_KEY.indexOf('PEGAR') === -1;
+function supabaseHeaders(){ return { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer '+SUPABASE_ANON_KEY, 'Content-Type': 'application/json' }; }
+function supabaseGet(path){ return fetch(SUPABASE_URL+'/rest/v1/'+path, { headers: supabaseHeaders(), cache: 'no-store' }); }
+function supabaseSend(path, method, body, prefer){
+  const h = supabaseHeaders();
+  if(prefer) h['Prefer'] = prefer;
+  return fetch(SUPABASE_URL+'/rest/v1/'+path, { method: method, headers: h, body: body ? JSON.stringify(body) : undefined });
+}
 const TEACHER_KEY = 'DOCENTE2026';
 const LETTERS = ['A','B','C','D'];
 
@@ -481,11 +498,14 @@ function formatTime(secs){ const m=Math.floor(secs/60); const s=secs%60; return 
 
 /* ═══════ QUIZ STATUS ═══════ */
 function checkQuizStatus(){
-  fetch(API_BASE+'/status',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(cfg=>{
-    if(cfg && !cfg.open){
-      document.querySelector('.welcome-card').innerHTML='<div style="text-align:center;padding:40px"><i class="fa-solid fa-lock" style="font-size:48px;color:var(--gold);margin-bottom:16px;display:block"></i><h2 style="font-family:Fraunces,serif;color:var(--forest-deep)">Evaluación cerrada</h2><p style="color:var(--muted);margin-top:8px">El docente abrirá la evaluación cuando esté listo. Espera instrucciones.</p></div>';
-    }
-  }).catch(()=>{});
+  if(!SUPABASE_CONFIGURED) return;
+  supabaseGet('quiz_config?exam_id=eq.'+EXAM_ID+'&select=open')
+    .then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+    .then(rows=>{
+      if(rows.length && rows[0].open === false){
+        document.querySelector('.welcome-card').innerHTML='<div style="text-align:center;padding:40px"><i class="fa-solid fa-lock" style="font-size:48px;color:var(--gold);margin-bottom:16px;display:block"></i><h2 style="font-family:Fraunces,serif;color:var(--forest-deep)">Evaluación cerrada</h2><p style="color:var(--muted);margin-top:8px">El docente abrirá la evaluación cuando esté listo. Espera instrucciones.</p></div>';
+      }
+    }).catch(()=>{ /* backend no disponible: no bloquear el quiz */ });
 }
 
 /* ═══════ START ═══════ */
@@ -496,20 +516,24 @@ function startQuiz(){
   if(!fullName){ errorEl.innerHTML='<i class="fa-solid fa-circle-exclamation"></i> Selecciona tu nombre para comenzar.'; errorEl.classList.add('show'); sel.focus(); return; }
   errorEl.classList.remove('show');
 
-  // Check one attempt
+  // Check one attempt (Supabase)
   const normalizedName = fullName.toUpperCase().trim();
-  fetch(API_BASE+'/grades').then(r=>r.ok?r.json():[]).then(rows=>{
-    const existing = rows.find(r=>{
-      const rn = ((r.studentName||r.name||'')+' '+(r.studentLastname||r.lastname||'')).toUpperCase().trim();
-      return rn === normalizedName;
-    });
-    if(existing){
-      errorEl.innerHTML='<i class="fa-solid fa-circle-exclamation"></i> Ya existe un registro con tu nombre. Solo se permite un intento.';
-      errorEl.classList.add('show');
-      return;
-    }
-    launchQuiz(fullName);
-  }).catch(()=>launchQuiz(fullName));
+  if(!SUPABASE_CONFIGURED){ launchQuiz(fullName); return; }
+  supabaseGet('quiz_results?exam_id=eq.'+EXAM_ID+'&select=student_name,student_lastname')
+    .then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+    .then(rows=>{
+      const existing = rows.find(r=>{
+        const rn = ((r.student_lastname||r.studentLastname||r.lastname||'')+', '+(r.student_name||r.studentName||r.name||'')).toUpperCase().trim();
+        const rnAlt = ((r.student_name||r.studentName||r.name||'')+' '+(r.student_lastname||r.studentLastname||r.lastname||'')).toUpperCase().trim();
+        return rn === normalizedName || rnAlt === normalizedName;
+      });
+      if(existing){
+        errorEl.innerHTML='<i class="fa-solid fa-circle-exclamation"></i> Ya existe un registro con tu nombre. Solo se permite un intento.';
+        errorEl.classList.add('show');
+        return;
+      }
+      launchQuiz(fullName);
+    }).catch(()=>launchQuiz(fullName));
 }
 
 function launchQuiz(fullName){
@@ -718,7 +742,7 @@ function finishQuiz(){
 
   showScreen('results-screen');
 
-  // Save to API
+  // Save to Supabase (con fallback a localStorage)
   const payload = {
     studentName: STATE.studentName,
     studentLastname: STATE.studentLastname,
@@ -742,22 +766,31 @@ function finishQuiz(){
     totalDurationSeconds: duration
   };
 
-  fetch(API_BASE+'/grades',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify(payload)
-  }).then(r=>{
-    if(r.ok){
-      document.getElementById('saveStatus').innerHTML='<i class="fa-solid fa-circle-check"></i> Resultado guardado correctamente.';
-    } else {
-      document.getElementById('saveStatus').innerHTML='<i class="fa-solid fa-triangle-exclamation"></i> Error al guardar. Contacta al docente.';
-      document.getElementById('saveStatus').style.color='var(--red)';
-    }
-  }).catch(()=>{
-    document.getElementById('saveStatus').innerHTML='<i class="fa-solid fa-triangle-exclamation"></i> Sin conexión. El resultado se guardará localmente.';
-    document.getElementById('saveStatus').style.color='var(--red)';
+  const sbRow = {
+    student_name: STATE.studentName,
+    student_lastname: STATE.studentLastname,
+    course: '3BGU',
+    exam_id: EXAM_ID,
+    score: correct,
+    total: STATE.selectedQuestions.length,
+    grade: parseFloat(score10),
+    timestamp: new Date().toISOString(),
+    attempt: 1,
+    answers: payload.answers
+  };
+  const saveStatusEl = document.getElementById('saveStatus');
+  function saveLocalFallback(){
     localStorage.setItem('quiz_'+EXAM_ID+'_'+STATE.studentFullName, JSON.stringify(payload));
-  });
+    saveStatusEl.innerHTML='<i class="fa-solid fa-triangle-exclamation"></i> Sin conexión con el servidor. El resultado se guardó solo en este dispositivo.';
+    saveStatusEl.style.color='var(--red)';
+  }
+  if(!SUPABASE_CONFIGURED){
+    saveLocalFallback();
+  } else {
+    supabaseSend('quiz_results', 'POST', sbRow)
+      .then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); saveStatusEl.innerHTML='<i class="fa-solid fa-circle-check"></i> Resultado guardado correctamente.'; })
+      .catch(saveLocalFallback);
+  }
 }
 
 /* ═══════ RETROALIMENTACIÓN ═══════ */
@@ -1176,10 +1209,10 @@ function generateStudentPDF(row){
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({unit:'mm',format:'a4'});
   const W=210, ML=14, MR=196, CW=MR-ML;
-  const name = (row.studentName||'') + ' ' + (row.studentLastname||'');
-  const correct = row.correct || 0;
+  const name = (row.student_name||row.studentName||'') + ' ' + (row.student_lastname||row.studentLastname||'');
+  const correct = row.score || row.correct || 0;
   const total = row.total || 0;
-  const score10 = Number(row.score_10 || 0).toFixed(1);
+  const score10 = Number(row.grade || row.score_10 || 0).toFixed(1);
   const answers = row.answers || [];
   const wrong = answers.filter(a => !a.ok);
   const LETTERS = ['A','B','C','D'];
@@ -1425,24 +1458,36 @@ function authenticateTeacher(){
 
 function loadTeacher(){
   if(!teacherAuthenticated) return;
-  fetch(API_BASE+'/grades').then(r=>r.ok?r.json():[]).then(rows=>{
-    currentTeacherRows = rows;
-    renderTeacherTable(rows);
-  }).catch(()=>alert('Error al cargar calificaciones.'));
+  const wrap = document.getElementById('teacher-table-wrap');
+  if(!SUPABASE_CONFIGURED){
+    currentTeacherRows = [];
+    wrap.innerHTML='<p style="color:var(--red);text-align:center;padding:20px">Supabase no esta configurado. Revisa las credenciales en el codigo.</p>';
+    return;
+  }
+  supabaseGet('quiz_results?exam_id=eq.'+EXAM_ID+'&select=*&order=timestamp.desc')
+    .then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+    .then(rows=>{
+      currentTeacherRows = rows;
+      renderTeacherTable(rows);
+    })
+    .catch(()=>{
+      currentTeacherRows = [];
+      wrap.innerHTML='<p style="color:var(--red);text-align:center;padding:20px">Error de conexion con Supabase. Verifica que el proyecto este activo y las credenciales sean correctas.</p>';
+    });
 }
 
 function renderTeacherTable(rows){
   const wrap = document.getElementById('teacher-table-wrap');
-  if(!rows.length){ wrap.innerHTML='<p style="color:var(--muted);text-align:center;padding:20px">No hay registros aún.</p>'; return; }
+  if(!rows.length){ wrap.innerHTML='<p style="color:var(--muted);text-align:center;padding:20px">No hay notas guardadas.</p>'; return; }
   let html = '<table><thead><tr><th>Nombre</th><th>Apellido</th><th>Curso</th><th>Correctas</th><th>Total</th><th>Nota /10</th><th>Fecha</th><th></th></tr></thead><tbody>';
   rows.forEach((r,idx)=>{
-    const name = r.studentName||r.name||'';
-    const last = r.studentLastname||r.lastname||'';
-    const date = r.created_at||r.savedAt||r.timestamp||'';
+    const name = r.student_name||r.studentName||r.name||'';
+    const last = r.student_lastname||r.studentLastname||r.lastname||'';
+    const date = r.timestamp||r.created_at||r.savedAt||'';
     const dateStr = date ? new Date(date).toLocaleString('es-EC') : '-';
     html += `<tr>
       <td>${escapeHtml(name)}</td><td>${escapeHtml(last)}</td><td>${escapeHtml(r.course||'3BGU')}</td>
-      <td>${r.correct||0}</td><td>${r.total||0}</td><td><strong>${Number(r.score_10||0).toFixed(1)}</strong></td>
+      <td>${r.score||r.correct||0}</td><td>${r.total||0}</td><td><strong>${Number(r.grade||r.score_10||0).toFixed(1)}</strong></td>
       <td>${dateStr}</td>
       <td style="white-space:nowrap">
         <button class="btn-del btn-pdf-row" data-pdfidx="${idx}" title="Descargar PDF retroalimentación"><i class="fa-solid fa-file-pdf"></i></button>
@@ -1459,13 +1504,16 @@ function renderTeacherTable(rows){
       const idx = parseInt(this.getAttribute('data-del'));
       if(isNaN(idx)) return;
       if(!confirm('Eliminar este registro?')) return;
-      // Remove from local array, clear all, re-save remaining
-      const remaining = currentTeacherRows.filter((_,i)=> i !== idx);
-      await fetch(API_BASE+'/clear',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'clear_all',examId:EXAM_ID})});
-      for(const r of remaining){
-        await fetch(API_BASE+'/grades',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(r)});
+      // Eliminar por id en Supabase
+      const row = currentTeacherRows[idx];
+      if(!row || !row.id){ alert('Este registro no tiene id (guardado local).'); return; }
+      try {
+        const res = await supabaseSend('quiz_results?id=eq.'+row.id, 'DELETE');
+        if(!res.ok) throw new Error('HTTP '+res.status);
+        loadTeacher();
+      } catch(e){
+        alert('Error al eliminar: '+e.message);
       }
-      loadTeacher();
     });
   });
 
@@ -1483,7 +1531,7 @@ function renderTeacherTable(rows){
 function filterTeacher(){
   const q = document.getElementById('teacherFilter').value.toLowerCase();
   const filtered = currentTeacherRows.filter(r=>{
-    const name = ((r.studentName||r.name||'')+' '+(r.studentLastname||r.lastname||'')).toLowerCase();
+    const name = ((r.student_name||r.studentName||r.name||'')+' '+(r.student_lastname||r.studentLastname||r.lastname||'')).toLowerCase();
     return name.includes(q);
   });
   renderTeacherTable(filtered);
@@ -1491,8 +1539,13 @@ function filterTeacher(){
 
 async function clearAllGrades(){
   if(!confirm('Borrar TODAS las calificaciones de este quiz? Esta accion no se puede deshacer.')) return;
-  await fetch(API_BASE+'/clear',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'clear_all',examId:EXAM_ID})});
-  loadTeacher();
+  try {
+    const res = await supabaseSend('quiz_results?exam_id=eq.'+EXAM_ID, 'DELETE');
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    loadTeacher();
+  } catch(e){
+    alert('Error al borrar: '+e.message);
+  }
 }
 
 function exportExcel(){
@@ -1501,9 +1554,9 @@ function exportExcel(){
   const esc = v=>{ const s=String(v??''); return /[",\n;]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
   const lines = [header.join(',')];
   currentTeacherRows.forEach(r=>{
-    lines.push([esc(r.studentName||r.name), esc(r.studentLastname||r.lastname), esc(r.course||'3BGU'),
-      r.correct||0, r.total||0, Number(r.score_10||0).toFixed(1),
-      new Date(r.created_at||r.savedAt||r.timestamp||Date.now()).toLocaleString('es-EC')].join(','));
+    lines.push([esc(r.student_name||r.studentName||r.name), esc(r.student_lastname||r.studentLastname||r.lastname), esc(r.course||'3BGU'),
+      r.score||r.correct||0, r.total||0, Number(r.grade||r.score_10||0).toFixed(1),
+      new Date(r.timestamp||r.created_at||r.savedAt||Date.now()).toLocaleString('es-EC')].join(','));
   });
   const csv = '\uFEFF'+lines.join('\r\n');
   const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
@@ -1515,12 +1568,19 @@ function exportExcel(){
 }
 
 async function toggleQuizStatus(){
-  const res = await fetch(API_BASE+'/status');
-  const cfg = await res.json();
-  const newOpen = !cfg.open;
-  await fetch(API_BASE+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({open:newOpen})});
-  document.getElementById('statusIcon').className = newOpen ? 'fa-solid fa-lock' : 'fa-solid fa-lock-open';
-  document.getElementById('statusText').textContent = newOpen ? 'Cerrar quiz' : 'Abrir quiz';
+  try {
+    if(!SUPABASE_CONFIGURED) throw new Error('Supabase no esta configurado');
+    const res = await supabaseGet('quiz_config?exam_id=eq.'+EXAM_ID+'&select=open');
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const rows = await res.json();
+    const newOpen = !(rows.length && rows[0].open);
+    const res2 = await supabaseSend('quiz_config?on_conflict=exam_id', 'POST', { exam_id: EXAM_ID, open: newOpen }, 'resolution=merge-duplicates');
+    if(!res2.ok) throw new Error('HTTP '+res2.status);
+    document.getElementById('statusIcon').className = newOpen ? 'fa-solid fa-lock' : 'fa-solid fa-lock-open';
+    document.getElementById('statusText').textContent = newOpen ? 'Cerrar quiz' : 'Abrir quiz';
+  } catch(e){
+    alert('No se pudo cambiar el estado del quiz: '+e.message+'. Verifica la conexion con Supabase.');
+  }
 }
 </script>
 </body>
